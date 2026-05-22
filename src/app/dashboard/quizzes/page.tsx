@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,15 +15,41 @@ const quizStatuses = {
   ARCHIVED: { variant: "secondary" as const, label: "Archived" },
 } as const;
 
+type Quiz = {
+  id: string;
+  number: number;
+  title: string | null;
+  date: string;
+  status: keyof typeof quizStatuses;
+  _count: { questions: number };
+};
+
 export default function QuizzesPage() {
-  const [quizzes] = useState<Array<{
-    id: string;
-    number: number;
-    title: string | null;
-    date: string;
-    status: keyof typeof quizStatuses;
-    questionCount: number;
-  }>>([]);
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch("/api/quizzes", { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error(`Failed to load quizzes (${res.status})`);
+        }
+        const data = (await res.json()) as Quiz[];
+        if (!cancelled) setQuizzes(data);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load quizzes");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -42,7 +68,20 @@ export default function QuizzesPage() {
         </Link>
       </div>
 
-      {quizzes.length === 0 ? (
+      {loading ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Loading quizzes…</CardTitle>
+          </CardHeader>
+        </Card>
+      ) : error ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Couldn&apos;t load quizzes</CardTitle>
+            <CardDescription>{error}</CardDescription>
+          </CardHeader>
+        </Card>
+      ) : quizzes.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>No quizzes yet</CardTitle>
@@ -94,7 +133,7 @@ export default function QuizzesPage() {
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <FileText className="h-4 w-4" />
-                      {quiz.questionCount} questions
+                      {quiz._count.questions} questions
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
