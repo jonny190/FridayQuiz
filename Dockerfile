@@ -36,15 +36,13 @@ RUN npm install -g pnpm@9.15.0
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy built assets
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
+# Copy built assets (all chowned at copy time — avoids a slow recursive
+# chown over node_modules that can fail on some build runners)
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-
-# Set proper permissions
-RUN chown -R nextjs:nodejs /app
 
 USER nextjs
 
