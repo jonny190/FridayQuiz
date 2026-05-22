@@ -1,65 +1,60 @@
 import { type NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "./prisma";
-import { generateRandomToken } from "./utils";
 
 export const authOptions: NextAuthOptions = {
-  adapter: undefined as any, // We're using custom auth, not the default adapter
   providers: [
     CredentialsProvider({
-      name: "Credentials",
+      name: "Magic Link",
       credentials: {
-        email: { label: "Email", type: "email" },
         magicToken: { label: "Magic Token", type: "text" },
       },
       async authorize(credentials) {
-        if (!credentials?.email) {
+        const magicToken = credentials?.magicToken;
+        if (typeof magicToken !== "string" || magicToken.length === 0) {
           return null;
         }
 
-        const email = credentials.email as string;
-
-        // Check if this is the configured quizmaster email
-        const isQuizmaster = process.env.QUIZMASTER_EMAIL?.toLowerCase() === email.toLowerCase();
-
-        // Find user by email
-        const user = await prisma.user.findUnique({
-          where: { email },
+        const user = await prisma.user.findFirst({
+          where: {
+            magicToken,
+            magicTokenExpiry: { gt: new Date() },
+          },
         });
 
         if (!user) {
-          // Create new user if they don't exist
-          // First user gets QUIZMASTER role, or if email matches QUIZMASTER_EMAIL
-          const isFirstUser = await prisma.user.count() === 0;
-          const role = isQuizmaster || isFirstUser ? "QUIZMASTER" : "MEMBER";
-          
-          const newUser = await prisma.user.create({
-            data: {
-              email,
-              magicToken: generateRandomToken(),
-              role,
-            },
-          });
-          return {
-            id: newUser.id,
-            email: newUser.email,
-            name: `${newUser.firstName || ""} ${newUser.lastName || ""}`.trim() || undefined,
-            role: newUser.role,
-          };
+          return null;
         }
 
-        // If existing user matches QUIZMASTER_EMAIL, ensure they have QUIZMASTER role
-        if (isQuizmaster && user.role !== "QUIZMASTER") {
+        // Atomically consume the token — single-use. If another
+        // request already consumed it, this update affects 0 rows.
+        const consumed = await prisma.user.updateMany({
+          where: { id: user.id, magicToken },
+          data: { magicToken: null, magicTokenExpiry: null },
+        });
+
+        if (consumed.count === 0) {
+          return null;
+        }
+
+        const quizmasterEmail = process.env.QUIZMASTER_EMAIL?.toLowerCase();
+        if (
+          quizmasterEmail &&
+          quizmasterEmail === user.email.toLowerCase() &&
+          user.role !== "QUIZMASTER"
+        ) {
           await prisma.user.update({
             where: { id: user.id },
             data: { role: "QUIZMASTER" },
           });
+          user.role = "QUIZMASTER";
         }
 
         return {
           id: user.id,
           email: user.email,
-          name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || undefined,
+          name:
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() || undefined,
           role: user.role,
         };
       },

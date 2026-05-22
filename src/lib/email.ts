@@ -21,7 +21,7 @@ transporter.verify((error: Error | null, success: boolean) => {
 });
 
 export async function sendMagicLinkEmail(email: string, token: string) {
-  const signInUrl = `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/auth/signin?token=${token}`;
+  const signInUrl = `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/auth/verify?token=${encodeURIComponent(token)}`;
   const fromAddress = process.env.EMAIL_FROM || "noreply@daveys.xyz";
 
   try {
