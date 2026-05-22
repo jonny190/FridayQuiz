@@ -73,6 +73,7 @@ export default function MarkingPage({
   const [savingQuestion, setSavingQuestion] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [includeMembers, setIncludeMembers] = useState(false);
 
   async function load() {
     try {
@@ -195,14 +196,28 @@ export default function MarkingPage({
     setPublishing(true);
     try {
       await saveCurrent();
-      const res = await fetch(`/api/quizzes/${id}/publish`, { method: "POST" });
+      const res = await fetch(`/api/quizzes/${id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeMembers }),
+      });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         toast.error(j.error || "Failed to publish");
         return;
       }
       const result = await res.json();
-      toast.success(`Published — ${result.published} team result(s)`);
+      const emailSummary =
+        result.emailsSent > 0
+          ? ` · ${result.emailsSent} email${result.emailsSent === 1 ? "" : "s"} sent`
+          : "";
+      const failSummary =
+        result.emailsFailed > 0
+          ? ` (${result.emailsFailed} failed)`
+          : "";
+      toast.success(
+        `Published — ${result.published} team result(s)${emailSummary}${failSummary}`
+      );
       router.push(`/dashboard/quizzes/${id}`);
     } finally {
       setPublishing(false);
@@ -455,15 +470,25 @@ export default function MarkingPage({
           <AlertDialogHeader>
             <AlertDialogTitle>Publish results?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will compute team totals from the points entered on this
-              quiz, rank them, and mark the quiz as Published. Re-publishing
-              later will overwrite the previous results.
+              This will rank teams by the points entered on this quiz, mark
+              the quiz as Published, and email the leaderboard to each
+              team&apos;s contact email. Re-publishing later overwrites the
+              previous results.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <label className="flex items-center gap-2 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={includeMembers}
+              onChange={(e) => setIncludeMembers(e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            <span>Also email every team member, not just the contact</span>
+          </label>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handlePublish}>
-              Publish
+              Publish &amp; send emails
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
