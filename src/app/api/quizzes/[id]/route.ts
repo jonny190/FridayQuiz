@@ -78,10 +78,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             data: parsed.questions.map((q, index) => ({
               quizId: id,
               order: index + 1,
-              type: "TEXT",
+              type: q.imageUrls.length > 0 ? "IMAGE" : "TEXT",
               text: q.question,
               answer: q.answer,
               points: q.points,
+              imageUrls: q.imageUrls,
+              isImageBased: q.imageUrls.length > 0,
             })),
           }),
           ...(typeof title === "string"

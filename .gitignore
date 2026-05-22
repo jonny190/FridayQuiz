@@ -27,3 +27,5 @@ pnpm-debug.log*
 # Prisma
 prisma/migrations/*
 !prisma/migrations/.gitkeep
+# TypeScript build artifacts
+*.tsbuildinfo
