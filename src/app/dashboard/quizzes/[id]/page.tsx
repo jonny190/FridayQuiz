@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronLeft, Image as ImageIcon, Pencil, Plus, Trash2 } from "lucide-react";
+import { CheckSquare, ChevronLeft, ClipboardCheck, Image as ImageIcon, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type Question = {
@@ -288,12 +288,26 @@ export default function QuizDetailPage({
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Questions</h2>
-        <Button onClick={openAdd} size="sm" className="gap-1">
-          <Plus className="h-4 w-4" />
-          Add Question
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href={`/dashboard/quizzes/${id}/answers`}>
+            <Button variant="outline" size="sm" className="gap-1">
+              <CheckSquare className="h-4 w-4" />
+              Set answers
+            </Button>
+          </Link>
+          <Link href={`/dashboard/quizzes/${id}/marking`}>
+            <Button variant="outline" size="sm" className="gap-1">
+              <ClipboardCheck className="h-4 w-4" />
+              Mark & publish
+            </Button>
+          </Link>
+          <Button onClick={openAdd} size="sm" className="gap-1">
+            <Plus className="h-4 w-4" />
+            Add Question
+          </Button>
+        </div>
       </div>
 
       {quiz.questions.length === 0 ? (
