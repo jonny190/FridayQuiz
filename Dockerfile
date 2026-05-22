@@ -41,6 +41,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 
 # Set proper permissions
 RUN chown -R nextjs:nodejs /app
@@ -52,4 +53,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["pnpm", "start"]
+# Apply schema to the database, then start Next.js
+CMD ["sh", "-c", "npx prisma db push --skip-generate && pnpm start"]
