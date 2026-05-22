@@ -4,15 +4,11 @@ FROM node:20-alpine AS base
 FROM base AS deps
 WORKDIR /app
 
-# Check for pnpm-workspace.yaml to include it
-COPY pnpm-workspace.yaml ./
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable pnpm && \
-    if [ -f pnpm-workspace.yaml ]; then \
-      pnpm install --frozen-lockfile; \
-    else \
-      pnpm install --frozen-lockfile; \
-    fi
+# Pin pnpm to v9 which supports Node.js 20
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -20,9 +16,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma client and push schema
+# Generate Prisma client (skip db push - no database at build time)
 RUN npx prisma generate && \
-    # Skip db push in build (no database available) - handled at runtime
     pnpm build
 
 # Production image, copy all files and run Next.js
