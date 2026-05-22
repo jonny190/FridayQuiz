@@ -1,11 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { FileText, Plus, Upload, Trash2 } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 
 const quizStatuses = {
   DRAFT: { variant: "secondary" as const, label: "Draft" },
@@ -28,28 +39,89 @@ export default function QuizzesPage() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Quiz | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadTargetRef = useRef<string | null>(null);
+
+  async function load() {
+    try {
+      const res = await fetch("/api/quizzes", { cache: "no-store" });
+      if (!res.ok) throw new Error(`Failed to load quizzes (${res.status})`);
+      const data = (await res.json()) as Quiz[];
+      setQuizzes(data);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load quizzes");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch("/api/quizzes", { cache: "no-store" });
-        if (!res.ok) {
-          throw new Error(`Failed to load quizzes (${res.status})`);
-        }
-        const data = (await res.json()) as Quiz[];
-        if (!cancelled) setQuizzes(data);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load quizzes");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
     load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  const triggerUpload = (quizId: string) => {
+    uploadTargetRef.current = quizId;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const quizId = uploadTargetRef.current;
+    e.target.value = "";
+    uploadTargetRef.current = null;
+    if (!file || !quizId) return;
+    if (!file.name.endsWith(".docx")) {
+      toast.error("Please upload a .docx file only");
+      return;
+    }
+
+    setBusyId(quizId);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/api/quizzes/${quizId}`, {
+        method: "PATCH",
+        body: formData,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to upload DOCX");
+        return;
+      }
+      toast.success("Questions replaced from DOCX");
+      await load();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to upload DOCX");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDeleteConfirmed = async () => {
+    const quiz = pendingDelete;
+    if (!quiz) return;
+    setBusyId(quiz.id);
+    setPendingDelete(null);
+    try {
+      const res = await fetch(`/api/quizzes/${quiz.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete quiz");
+        return;
+      }
+      toast.success(`Quiz ${quiz.number} deleted`);
+      setQuizzes((prev) => prev.filter((q) => q.id !== quiz.id));
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to delete quiz");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -67,6 +139,14 @@ export default function QuizzesPage() {
           </Button>
         </Link>
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".docx"
+        className="hidden"
+        onChange={handleFileSelected}
+      />
 
       {loading ? (
         <Card>
@@ -121,9 +201,7 @@ export default function QuizzesPage() {
                       })}
                     </CardDescription>
                   </div>
-                  <Badge
-                    variant={quizStatuses[quiz.status]?.variant}
-                  >
+                  <Badge variant={quizStatuses[quiz.status]?.variant}>
                     {quizStatuses[quiz.status]?.label}
                   </Badge>
                 </div>
@@ -137,11 +215,23 @@ export default function QuizzesPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" className="gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      disabled={busyId === quiz.id}
+                      onClick={() => triggerUpload(quiz.id)}
+                    >
                       <Upload className="h-4 w-4" />
                       Upload DOCX
                     </Button>
-                    <Button variant="outline" size="sm" className="gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      disabled={busyId === quiz.id}
+                      onClick={() => setPendingDelete(quiz)}
+                    >
                       <Trash2 className="h-4 w-4" />
                       Delete
                     </Button>
@@ -152,6 +242,26 @@ export default function QuizzesPage() {
           ))}
         </div>
       )}
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this quiz?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete &&
+                `Quiz ${pendingDelete.number}${
+                  pendingDelete.title ? ` — ${pendingDelete.title}` : ""
+                } and all its questions, answers and results will be permanently removed.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirmed}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

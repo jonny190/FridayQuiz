@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -23,25 +22,58 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Users, Plus, Mail, Edit, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-interface Team {
+type TeamFromApi = {
   id: string;
   name: string;
   contactEmail: string;
-  memberCount: number;
-}
+  isActive: boolean;
+  _count: { members: number };
+};
 
 export default function TeamsPage() {
-  const [teams, setTeams] = useState<Team[]>([]);
+  const [teams, setTeams] = useState<TeamFromApi[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [editingTeam, setEditingTeam] = useState<TeamFromApi | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<TeamFromApi | null>(null);
+  const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     contactEmail: "",
     members: "",
   });
+
+  async function load() {
+    try {
+      const res = await fetch("/api/teams", { cache: "no-store" });
+      if (!res.ok) throw new Error(`Failed to load teams (${res.status})`);
+      const data = (await res.json()) as TeamFromApi[];
+      setTeams(data);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load teams");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
 
   const openNewTeamDialog = () => {
     setEditingTeam(null);
@@ -49,7 +81,7 @@ export default function TeamsPage() {
     setIsDialogOpen(true);
   };
 
-  const openEditTeamDialog = (team: Team) => {
+  const openEditTeamDialog = (team: TeamFromApi) => {
     setEditingTeam(team);
     setFormData({
       name: team.name,
@@ -59,37 +91,72 @@ export default function TeamsPage() {
     setIsDialogOpen(true);
   };
 
-  const handleSaveTeam = () => {
-    if (!formData.name.trim() || !formData.contactEmail.trim()) {
+  const handleSaveTeam = async () => {
+    const name = formData.name.trim();
+    const contactEmail = formData.contactEmail.trim();
+    if (!name || !contactEmail) {
       toast.error("Please fill in all required fields");
       return;
     }
 
-    if (editingTeam) {
-      setTeams(
-        teams.map((t) =>
-          t.id === editingTeam.id
-            ? { ...t, name: formData.name, contactEmail: formData.contactEmail }
-            : t
-        )
-      );
-      toast.success("Team updated successfully");
-    } else {
-      const newTeam: Team = {
-        id: crypto.randomUUID(),
-        name: formData.name,
-        contactEmail: formData.contactEmail,
-        memberCount: 0,
-      };
-      setTeams([...teams, newTeam]);
-      toast.success("Team created successfully");
+    setSaving(true);
+    try {
+      if (editingTeam) {
+        const res = await fetch(`/api/teams/${editingTeam.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, contactEmail }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          toast.error(data.error || "Failed to update team");
+          return;
+        }
+        toast.success("Team updated");
+      } else {
+        const res = await fetch("/api/teams", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            contactEmail,
+            members: formData.members,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          toast.error(data.error || "Failed to create team");
+          return;
+        }
+        toast.success("Team created");
+      }
+      setIsDialogOpen(false);
+      await load();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save team");
+    } finally {
+      setSaving(false);
     }
-    setIsDialogOpen(false);
   };
 
-  const handleDeleteTeam = (id: string) => {
-    setTeams(teams.filter((t) => t.id !== id));
-    toast.success("Team deleted");
+  const handleDeleteConfirmed = async () => {
+    const team = pendingDelete;
+    if (!team) return;
+    setPendingDelete(null);
+    try {
+      const res = await fetch(`/api/teams/${team.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to delete team");
+        return;
+      }
+      toast.success(`${team.name} deleted`);
+      setTeams((prev) => prev.filter((t) => t.id !== team.id));
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to delete team");
+    }
   };
 
   return (
@@ -97,9 +164,7 @@ export default function TeamsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Teams</h1>
-          <p className="text-muted-foreground">
-            Manage your quiz teams
-          </p>
+          <p className="text-muted-foreground">Manage your quiz teams</p>
         </div>
         <Button onClick={openNewTeamDialog} className="gap-2">
           <Plus className="h-4 w-4" />
@@ -107,7 +172,20 @@ export default function TeamsPage() {
         </Button>
       </div>
 
-      {teams.length === 0 ? (
+      {loading ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Loading teams…</CardTitle>
+          </CardHeader>
+        </Card>
+      ) : error ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Couldn&apos;t load teams</CardTitle>
+            <CardDescription>{error}</CardDescription>
+          </CardHeader>
+        </Card>
+      ) : teams.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -152,7 +230,8 @@ export default function TeamsPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">
-                        {team.memberCount} member{team.memberCount !== 1 ? "s" : ""}
+                        {team._count.members} member
+                        {team._count.members === 1 ? "" : "s"}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -167,7 +246,7 @@ export default function TeamsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteTeam(team.id)}
+                          onClick={() => setPendingDelete(team)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -184,9 +263,7 @@ export default function TeamsPage() {
       <Sheet open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <SheetContent>
           <SheetHeader className="text-left">
-            <SheetTitle>
-              {editingTeam ? "Edit Team" : "New Team"}
-            </SheetTitle>
+            <SheetTitle>{editingTeam ? "Edit Team" : "New Team"}</SheetTitle>
             <SheetDescription>
               {editingTeam
                 ? "Update the team details below."
@@ -217,31 +294,64 @@ export default function TeamsPage() {
                 }
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="members">
-                Add Members (email addresses, one per line)
-              </Label>
-              <textarea
-                id="members"
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                placeholder="member1@email.com&#10;member2@email.com"
-                value={formData.members}
-                onChange={(e) =>
-                  setFormData({ ...formData, members: e.target.value })
-                }
-              />
-            </div>
+            {!editingTeam && (
+              <div className="grid gap-2">
+                <Label htmlFor="members">
+                  Add Members (email addresses, one per line)
+                </Label>
+                <textarea
+                  id="members"
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  placeholder="member1@email.com&#10;member2@email.com"
+                  value={formData.members}
+                  onChange={(e) =>
+                    setFormData({ ...formData, members: e.target.value })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  We&apos;ll create user records for these emails so they can
+                  sign in with a magic link.
+                </p>
+              </div>
+            )}
           </div>
           <SheetFooter className="mt-4">
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setIsDialogOpen(false)}
+              disabled={saving}
+            >
               Cancel
             </Button>
-            <Button onClick={handleSaveTeam}>
-              {editingTeam ? "Update" : "Create"} Team
+            <Button onClick={handleSaveTeam} disabled={saving}>
+              {saving
+                ? "Saving…"
+                : `${editingTeam ? "Update" : "Create"} Team`}
             </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this team?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete &&
+                `"${pendingDelete.name}" and all its members, answers, and results will be permanently removed.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirmed}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
