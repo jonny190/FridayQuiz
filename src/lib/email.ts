@@ -65,40 +65,53 @@ export async function sendQuizResultsEmail(
   results: { teamName: string; score: number; total: number; percentage: number; rank: number }[]
 ) {
   const fromAddress = process.env.EMAIL_FROM || "noreply@daveys.xyz";
+  const dashboardUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+  const sortedResults = [...results].sort((a, b) => a.rank - b.rank);
+  const hasResults = sortedResults.length > 0;
+
+  const leaderboardHtml = hasResults
+    ? `
+        <div style="margin: 24px 0; background: #f9f9f9; padding: 16px; border-radius: 8px;">
+          <h2 style="color: #333; margin-top: 0;">Leaderboard</h2>
+          ${sortedResults
+            .map(
+              (r, i) => `
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee;">
+              <span>${i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${r.rank}.`}</span>
+              <strong>${r.teamName}</strong>
+              <span>${r.score}/${r.total} (${r.percentage}%)</span>
+            </div>
+          `
+            )
+            .join("")}
+        </div>`
+    : `
+        <div style="margin: 24px 0; padding: 16px; border-radius: 8px; background: #f9f9f9; color: #555;">
+          The quizmaster hasn't entered any team marks yet, but they
+          wanted to let you know Quiz ${quizNumber} is now published.
+        </div>`;
 
   try {
-    const sortedResults = [...results].sort((a, b) => a.rank - b.rank);
-
     const info = await transporter.sendMail({
       from: `"Friday Quiz" <${fromAddress}>`,
       to: email,
-      subject: `Quiz ${quizNumber} - Results Published!`,
+      subject: hasResults
+        ? `Quiz ${quizNumber} — Results Published!`
+        : `Quiz ${quizNumber} — Published`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #333;">Quiz ${quizNumber} Results</h1>
+          <h1 style="color: #333;">Quiz ${quizNumber}</h1>
           <p>Hello,</p>
-          <p>The results for Quiz ${quizNumber} have been published!</p>
-          
-          <div style="margin: 24px 0; background: #f9f9f9; padding: 16px; border-radius: 8px;">
-            <h2 style="color: #333; margin-top: 0;">Leaderboard</h2>
-            ${sortedResults
-              .map(
-                (r, i) => `
-              <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee;">
-                <span>${i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${r.rank}.`}</span>
-                <strong>${r.teamName}</strong>
-                <span>${r.score}/${r.total} (${r.percentage}%)</span>
-              </div>
-            `
-              )
-              .join("")}
-          </div>
+          <p>${hasResults ? `The results for Quiz ${quizNumber} have been published!` : `Quiz ${quizNumber} is now published.`}</p>
 
-          <p>Log in to see the full details and individual question results.</p>
+          ${leaderboardHtml}
+
+          <p>Log in to see the full details${hasResults ? " and individual question results" : ""}.</p>
           <p style="margin: 24px 0;">
-            <a href="${process.env.NEXTAUTH_URL || "http://localhost:3000"}/dashboard/results" 
+            <a href="${dashboardUrl}/dashboard/results"
                style="background-color: #0070f3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">
-              View Results
+              ${hasResults ? "View Results" : "Open Dashboard"}
             </a>
           </p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />

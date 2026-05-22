@@ -78,10 +78,28 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
   }
 
-  // Gather recipients and build leaderboard payload.
-  const teamIds = withRanks.map((r) => r.teamId);
-  const teams = await prisma.team.findMany({
-    where: { id: { in: teamIds } },
+  // Build leaderboard from any teams that had QuizAnswers.
+  const scoredTeamIds = withRanks.map((r) => r.teamId);
+  const scoredTeams = await prisma.team.findMany({
+    where: { id: { in: scoredTeamIds } },
+    select: { id: true, name: true },
+  });
+  const nameById = new Map(scoredTeams.map((t) => [t.id, t.name]));
+
+  const leaderboard = withRanks.map((r) => ({
+    teamName: nameById.get(r.teamId) ?? "Unknown",
+    score: r.totalScore,
+    total: maxScore,
+    percentage:
+      maxScore > 0 ? Math.round((r.totalScore / maxScore) * 100) : 0,
+    rank: r.rank,
+  }));
+
+  // Recipients: every active team's contact, plus members when opted in.
+  // Sending to all active teams (not just scored ones) so teams hear about
+  // a published quiz even when no marks were entered.
+  const allActiveTeams = await prisma.team.findMany({
+    where: { isActive: true },
     include: includeMembers
       ? {
           members: {
@@ -90,22 +108,9 @@ export async function POST(request: NextRequest, { params }: Params) {
         }
       : undefined,
   });
-  const teamById = new Map(teams.map((t) => [t.id, t]));
-
-  const leaderboard = withRanks.map((r) => {
-    const team = teamById.get(r.teamId);
-    return {
-      teamName: team?.name ?? "Unknown",
-      score: r.totalScore,
-      total: maxScore,
-      percentage:
-        maxScore > 0 ? Math.round((r.totalScore / maxScore) * 100) : 0,
-      rank: r.rank,
-    };
-  });
 
   const recipients = new Set<string>();
-  for (const team of teams) {
+  for (const team of allActiveTeams) {
     if (team.contactEmail) recipients.add(team.contactEmail.toLowerCase());
     if (includeMembers && "members" in team) {
       const t = team as typeof team & {
