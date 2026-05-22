@@ -16,20 +16,15 @@ export default function NewQuizPage() {
   const [quizNumber, setQuizNumber] = useState("");
   const [quizTitle, setQuizTitle] = useState("");
   const [questions, setQuestions] = useState<string[]>([""]);
-  const [activeTab, setActiveTab] = useState("manual");
+  const [activeTab, setActiveTab] = useState("upload");
   const [file, setFile] = useState<File | null>(null);
-  const [parsedQuestions, setParsedQuestions] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const uploadedFile = acceptedFiles[0];
     if (uploadedFile?.name.endsWith(".docx")) {
       setFile(uploadedFile);
-      // Simulate parsing - in production, this would call an API route
-      setParsedQuestions([
-        `Question from ${uploadedFile.name} would be parsed here`,
-      ]);
-      setActiveTab("parsed");
-      toast.success("DOCX file uploaded successfully");
+      toast.success(`${uploadedFile.name} ready to upload`);
     } else {
       toast.error("Please upload a .docx file only");
     }
@@ -57,20 +52,59 @@ export default function NewQuizPage() {
     setQuestions(updated);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!quizNumber.trim()) {
       toast.error("Please enter a quiz number");
       return;
     }
 
-    const validQuestions = questions.filter((q) => q.trim());
-    if (validQuestions.length === 0) {
-      toast.error("Please add at least one question");
+    const validManualQuestions = questions.map((q) => q.trim()).filter(Boolean);
+    const hasManual = activeTab === "manual" && validManualQuestions.length > 0;
+    const hasFile = activeTab === "upload" && file;
+
+    if (!hasManual && !hasFile) {
+      toast.error(
+        activeTab === "upload"
+          ? "Please upload a DOCX file"
+          : "Please add at least one question"
+      );
       return;
     }
 
-    toast.success(`Quiz #${quizNumber} created with ${validQuestions.length} questions`);
-    router.push("/dashboard/quizzes");
+    setSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append("quizNumber", quizNumber.trim());
+      if (quizTitle.trim()) {
+        formData.append("quizTitle", quizTitle.trim());
+      }
+      if (hasFile && file) {
+        formData.append("file", file);
+      }
+      if (hasManual) {
+        formData.append("manualQuestions", JSON.stringify(validManualQuestions));
+      }
+
+      const res = await fetch("/api/quizzes", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to create quiz");
+        return;
+      }
+
+      toast.success(`Quiz #${quizNumber} created`);
+      router.push("/dashboard/quizzes");
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to create quiz");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -132,7 +166,7 @@ export default function NewQuizPage() {
             <CardHeader>
               <CardTitle>Upload Quiz DOCX</CardTitle>
               <CardDescription>
-                Drag and drop your quiz document here
+                Drag and drop your quiz document here. Questions will be parsed on the server.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -215,12 +249,12 @@ export default function NewQuizPage() {
       </Tabs>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => router.back()}>
+        <Button variant="outline" onClick={() => router.back()} disabled={saving}>
           Cancel
         </Button>
-        <Button onClick={handleSave}>
+        <Button onClick={handleSave} disabled={saving}>
           <ChevronRight className="h-4 w-4 mr-2" />
-          Create Quiz
+          {saving ? "Creating…" : "Create Quiz"}
         </Button>
       </div>
     </div>
