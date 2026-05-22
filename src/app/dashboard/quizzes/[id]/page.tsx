@@ -86,6 +86,10 @@ export default function QuizDetailPage({
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Question | null>(null);
 
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [includeMembers, setIncludeMembers] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+
   async function load() {
     try {
       const res = await fetch(`/api/quizzes/${id}`, { cache: "no-store" });
@@ -196,6 +200,36 @@ export default function QuizDetailPage({
     }
   };
 
+  const handlePublish = async () => {
+    setPublishOpen(false);
+    setPublishing(true);
+    try {
+      const res = await fetch(`/api/quizzes/${id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeMembers }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error || "Failed to publish");
+        return;
+      }
+      const result = await res.json();
+      const emailSummary =
+        result.emailsSent > 0
+          ? ` · ${result.emailsSent} email${result.emailsSent === 1 ? "" : "s"} sent`
+          : "";
+      const failSummary =
+        result.emailsFailed > 0 ? ` (${result.emailsFailed} failed)` : "";
+      toast.success(
+        `Published — ${result.published} team result(s)${emailSummary}${failSummary}`
+      );
+      await load();
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const handleDeleteConfirmed = async () => {
     const q = pendingDelete;
     if (!q) return;
@@ -285,6 +319,12 @@ export default function QuizDetailPage({
               ))}
             </SelectContent>
           </Select>
+          <Button
+            onClick={() => setPublishOpen(true)}
+            disabled={publishing}
+          >
+            {publishing ? "Publishing…" : "Publish"}
+          </Button>
         </div>
       </div>
 
@@ -438,6 +478,35 @@ export default function QuizDetailPage({
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Publish results?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This ranks teams by the points entered on this quiz, marks the
+              quiz as Published, and emails the leaderboard to each team&apos;s
+              contact email. Re-publishing later overwrites the previous
+              results and resends the emails.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex items-center gap-2 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={includeMembers}
+              onChange={(e) => setIncludeMembers(e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            <span>Also email every team member, not just the contact</span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handlePublish}>
+              Publish &amp; send emails
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={!!pendingDelete}
