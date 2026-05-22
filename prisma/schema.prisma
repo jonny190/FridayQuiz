@@ -1,0 +1,165 @@
+// FridayQuiz Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String     @id @default(uuid())
+  email            String     @unique
+  magicToken       String?    @unique
+  magicTokenExpiry DateTime?
+  firstName        String?
+  lastName         String?
+  role             Role       @default(MEMBER)
+  teamId           String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  teamMembers      TeamMember[]
+  submittedAnswers QuizAnswer[] @relation("AnswerSubmitter")
+}
+
+model Team {
+  id              String      @id @default(uuid())
+  name            String
+  contactEmail    String
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  members         TeamMember[]
+  quizAnswers     QuizAnswer[]
+  suggestions     Suggestion[]
+  quizResults     QuizResult[]
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  team      Team     @relation(fields: [teamId], references: [id])
+  teamId    String
+  role      MemberRole @default(MEMBER)
+  invitedAt DateTime @default(now())
+
+  @@unique([userId, teamId])
+}
+
+model Quiz {
+  id          String      @id @default(uuid())
+  number      Int         @unique
+  title       String?
+  date        DateTime    @default(now())
+  status      QuizStatus  @default(DRAFT)
+  docxFileUrl String?
+  uploadedBy  String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  questions   Question[]
+  results     QuizResult[]
+  quizAnswers QuizAnswer[]
+  suggestions Suggestion[]
+}
+
+model Question {
+  id           String     @id @default(uuid())
+  quiz         Quiz       @relation(fields: [quizId], references: [id])
+  quizId       String
+  order        Int
+  type         QuestionType
+  text         String
+  imageUrl     String?
+  answer       String
+  explanation  String?
+  points       Float      @default(1)
+  isImageBased Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+
+  quizAnswers  QuizAnswer[]
+  suggestions  Suggestion[]
+}
+
+model QuizAnswer {
+  id            String   @id @default(uuid())
+  quiz          Quiz     @relation(fields: [quizId], references: [id])
+  quizId        String
+  question      Question @relation(fields: [questionId], references: [id])
+  questionId    String
+  team          Team     @relation(fields: [teamId], references: [id])
+  teamId        String
+  answer        String
+  points        Float?
+  submittedBy   String
+  submittedAt   DateTime @default(now())
+  isDraft       Boolean  @default(false)
+
+  submitter     User?    @relation("AnswerSubmitter", fields: [submittedById], references: [id])
+  submittedById String?
+
+  @@unique([quizId, questionId, teamId])
+}
+
+model Suggestion {
+  id              String   @id @default(uuid())
+  team            Team     @relation(fields: [teamId], references: [id])
+  teamId          String
+  quiz            Quiz     @relation(fields: [quizId], references: [id])
+  quizId          String
+  question        Question @relation(fields: [questionId], references: [id])
+  questionId      String
+  suggestedAnswer String
+  suggestedBy     String
+  upvotes         Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@unique([quizId, questionId, suggestedAnswer])
+}
+
+model QuizResult {
+  id             String   @id @default(uuid())
+  quiz           Quiz     @relation(fields: [quizId], references: [id])
+  quizId         String
+  team           Team     @relation(fields: [teamId], references: [id])
+  teamId         String
+  totalScore     Float
+  rank           Int?
+  excelFileUrl   String?
+  publishedAt    DateTime?
+  published      Boolean  @default(false)
+
+  @@unique([quizId, teamId])
+}
+
+enum Role {
+  QUIZMASTER
+  TEAM_CONTACT
+  MEMBER
+}
+
+enum MemberRole {
+  OWNER
+  MEMBER
+}
+
+enum QuizStatus {
+  DRAFT
+  ACTIVE
+  GRADED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum QuestionType {
+  TEXT
+  IMAGE
+  MULTIPLE_CHOICE
+  NUMERIC
+  WORD_SCRAMBLE
+}
