@@ -97,8 +97,8 @@ export async function sendQuizResultsEmail(
         </div>`
     : `
         <div style="margin: 24px 0; padding: 16px; border-radius: 8px; background: #f9f9f9; color: #555;">
-          The quizmaster hasn't entered any team marks yet, but they
-          wanted to let you know Quiz ${quizNumber} is now published.
+          Quiz ${quizNumber} is now live. Scores haven't been entered
+          yet — check back once the quizmaster has finished marking.
         </div>`;
 
   try {
