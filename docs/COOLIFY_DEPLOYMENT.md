@@ -35,17 +35,16 @@ npx prisma db push
 npx prisma migrate dev
 ```
 
-## Build Commands
+## Build Source
 
-**Build Command:**
-```
-npx prisma generate && npx prisma db push && next build
-```
+**Important:** In Coolify, set **Build Source** to `Dockerfile` (not `nixpacks`).
 
-**Start Command:**
-```
-next start
-```
+1. Go to your application in Coolify
+2. Scroll to **Build System**
+3. Change **Build Source** from `nixpacks` to `dockerfile`
+4. Save and redeploy
+
+This ensures the multi-stage Dockerfile is used, which properly installs dependencies before building.
 
 ## Git Repository
 
