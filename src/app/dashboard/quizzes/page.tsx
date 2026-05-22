@@ -184,7 +184,10 @@ export default function QuizzesPage() {
             <Card key={quiz.id}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <div>
+                  <Link
+                    href={`/dashboard/quizzes/${quiz.id}`}
+                    className="hover:underline"
+                  >
                     <CardTitle className="text-lg">
                       Quiz No. {quiz.number}
                       {quiz.title && (
@@ -200,7 +203,7 @@ export default function QuizzesPage() {
                         year: "numeric",
                       })}
                     </CardDescription>
-                  </div>
+                  </Link>
                   <Badge variant={quizStatuses[quiz.status]?.variant}>
                     {quizStatuses[quiz.status]?.label}
                   </Badge>
@@ -215,6 +218,11 @@ export default function QuizzesPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Link href={`/dashboard/quizzes/${quiz.id}`}>
+                      <Button variant="outline" size="sm">
+                        Open
+                      </Button>
+                    </Link>
                     <Button
                       variant="outline"
                       size="sm"
