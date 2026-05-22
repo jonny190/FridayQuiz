@@ -4,8 +4,8 @@ FROM node:20-alpine AS base
 FROM base AS deps
 WORKDIR /app
 
-# Pin pnpm to v9 which supports Node.js 20
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+# Install pnpm v9 globally
+RUN npm install -g pnpm@9.15.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -16,6 +16,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Install pnpm v9 globally for build stage
+RUN npm install -g pnpm@9.15.0
+
 # Generate Prisma client (skip db push - no database at build time)
 RUN npx prisma generate && \
     pnpm build
@@ -25,6 +28,9 @@ FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+
+# Install pnpm v9 globally for runtime
+RUN npm install -g pnpm@9.15.0
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs && \
