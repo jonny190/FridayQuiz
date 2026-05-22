@@ -122,10 +122,16 @@ export async function sendQuizResultsEmail(
       `,
     });
 
-    console.log("Results email sent:", info.messageId);
+    console.log(
+      `[email] results to=${email} quiz=${quizNumber} messageId=${info.messageId} accepted=${(info.accepted ?? []).join(",")} rejected=${(info.rejected ?? []).join(",")}`
+    );
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error("Error sending results email:", error);
+    const detail =
+      error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : JSON.stringify(error);
+    console.error(`[email] FAILED to=${email} quiz=${quizNumber} error=${detail}`);
     return { success: false, error };
   }
 }

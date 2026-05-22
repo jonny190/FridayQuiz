@@ -71,6 +71,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   ]);
 
   if (!sendEmails) {
+    console.log(
+      `[publish] quiz=${quiz.number} published=${withRanks.length} emails=skipped`
+    );
     return NextResponse.json({
       published: withRanks.length,
       emailsSent: 0,
@@ -109,35 +112,78 @@ export async function POST(request: NextRequest, { params }: Params) {
       : undefined,
   });
 
-  const recipients = new Set<string>();
+  // Build a per-recipient record so we can log who got what.
+  type Recipient = { email: string; teamName: string; via: "contact" | "member" };
+  const seen = new Set<string>();
+  const recipients: Recipient[] = [];
   for (const team of allActiveTeams) {
-    if (team.contactEmail) recipients.add(team.contactEmail.toLowerCase());
+    const contact = team.contactEmail?.toLowerCase();
+    if (contact && !seen.has(contact)) {
+      seen.add(contact);
+      recipients.push({ email: contact, teamName: team.name, via: "contact" });
+    }
     if (includeMembers && "members" in team) {
       const t = team as typeof team & {
         members: { user: { email: string } }[];
       };
       for (const m of t.members) {
-        if (m.user.email) recipients.add(m.user.email.toLowerCase());
+        const e = m.user.email?.toLowerCase();
+        if (e && !seen.has(e)) {
+          seen.add(e);
+          recipients.push({ email: e, teamName: team.name, via: "member" });
+        }
       }
     }
   }
 
+  console.log(
+    `[publish] quiz=${quiz.number} activeTeams=${allActiveTeams.length} scoredTeams=${withRanks.length} recipients=${recipients.length} includeMembers=${includeMembers}`
+  );
+  if (recipients.length === 0) {
+    console.warn(
+      `[publish] quiz=${quiz.number} no recipients — check that at least one team is active and has a contactEmail`
+    );
+  }
+
   const results = await Promise.allSettled(
-    Array.from(recipients).map((email) =>
-      sendQuizResultsEmail(email, quiz.number, leaderboard)
-    )
+    recipients.map((r) => sendQuizResultsEmail(r.email, quiz.number, leaderboard))
   );
 
   let emailsSent = 0;
   let emailsFailed = 0;
-  for (const r of results) {
-    if (r.status === "fulfilled" && r.value.success) emailsSent += 1;
-    else emailsFailed += 1;
-  }
+  results.forEach((r, idx) => {
+    const recipient = recipients[idx];
+    if (r.status === "fulfilled" && r.value.success) {
+      emailsSent += 1;
+      console.log(
+        `[publish] ok team=${JSON.stringify(recipient.teamName)} via=${recipient.via} to=${recipient.email}`
+      );
+    } else {
+      emailsFailed += 1;
+      const reason =
+        r.status === "rejected"
+          ? r.reason instanceof Error
+            ? `${r.reason.name}: ${r.reason.message}`
+            : String(r.reason)
+          : r.value && "error" in r.value
+            ? r.value.error instanceof Error
+              ? `${r.value.error.name}: ${r.value.error.message}`
+              : JSON.stringify(r.value.error)
+            : "unknown";
+      console.error(
+        `[publish] fail team=${JSON.stringify(recipient.teamName)} via=${recipient.via} to=${recipient.email} reason=${reason}`
+      );
+    }
+  });
+
+  console.log(
+    `[publish] quiz=${quiz.number} done sent=${emailsSent} failed=${emailsFailed}`
+  );
 
   return NextResponse.json({
     published: withRanks.length,
     emailsSent,
     emailsFailed,
+    recipients: recipients.length,
   });
 }
