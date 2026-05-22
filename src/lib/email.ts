@@ -62,10 +62,19 @@ export async function sendMagicLinkEmail(email: string, token: string) {
 export async function sendQuizResultsEmail(
   email: string,
   quizNumber: number,
-  results: { teamName: string; score: number; total: number; percentage: number; rank: number }[]
+  results: { teamName: string; score: number; total: number; percentage: number; rank: number }[],
+  options?: { signInUrl?: string }
 ) {
   const fromAddress = process.env.EMAIL_FROM || "noreply@daveys.xyz";
   const dashboardUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const linkUrl = options?.signInUrl ?? `${dashboardUrl}/dashboard/results`;
+  const linkLabel = options?.signInUrl
+    ? results.length > 0
+      ? "Sign in & view results"
+      : "Sign in to dashboard"
+    : results.length > 0
+      ? "View Results"
+      : "Open Dashboard";
 
   const sortedResults = [...results].sort((a, b) => a.rank - b.rank);
   const hasResults = sortedResults.length > 0;
@@ -107,13 +116,14 @@ export async function sendQuizResultsEmail(
 
           ${leaderboardHtml}
 
-          <p>Log in to see the full details${hasResults ? " and individual question results" : ""}.</p>
+          <p>${options?.signInUrl ? "Click the button below to sign in and view the dashboard — no password needed." : `Log in to see the full details${hasResults ? " and individual question results" : ""}.`}</p>
           <p style="margin: 24px 0;">
-            <a href="${dashboardUrl}/dashboard/results"
+            <a href="${linkUrl}"
                style="background-color: #0070f3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">
-              ${hasResults ? "View Results" : "Open Dashboard"}
+              ${linkLabel}
             </a>
           </p>
+          ${options?.signInUrl ? `<p style="color:#888;font-size:12px;">This sign-in link is single-use and expires in 24 hours.</p>` : ""}
           <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
           <p style="color: #888; font-size: 12px;">
             Friday Quiz Management Platform

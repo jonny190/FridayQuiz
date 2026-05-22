@@ -9,10 +9,18 @@ function VerifyInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const next = searchParams.get("next");
   const [status, setStatus] = useState<"verifying" | "error">("verifying");
 
   useEffect(() => {
     let cancelled = false;
+
+    // Only follow next= if it's a same-origin relative path so the
+    // sign-in link can't be used as an open redirect.
+    const safeNext =
+      next && next.startsWith("/") && !next.startsWith("//")
+        ? next
+        : "/dashboard";
 
     async function verify() {
       if (!token) {
@@ -32,7 +40,7 @@ function VerifyInner() {
         return;
       }
 
-      router.replace("/dashboard");
+      router.replace(safeNext);
       router.refresh();
     }
 
@@ -41,7 +49,7 @@ function VerifyInner() {
     return () => {
       cancelled = true;
     };
-  }, [token, router]);
+  }, [token, next, router]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireQuizmaster } from "@/lib/sessionGuards";
 import { sendQuizResultsEmail } from "@/lib/email";
+import { generateRandomToken } from "@/lib/utils";
+
+const MAGIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -145,8 +148,41 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
   }
 
+  // For each recipient, upsert a user record and mint a single-use
+  // magic token so the "View Results" button signs them straight in.
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const expiry = new Date(Date.now() + MAGIC_TOKEN_TTL_MS);
+  const tokenByEmail = new Map<string, string>();
+
+  for (const r of recipients) {
+    try {
+      const user = await prisma.user.upsert({
+        where: { email: r.email },
+        update: {},
+        create: { email: r.email, role: "MEMBER" },
+      });
+      const token = generateRandomToken(48);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { magicToken: token, magicTokenExpiry: expiry },
+      });
+      tokenByEmail.set(r.email, token);
+    } catch (err) {
+      console.error(
+        `[publish] could not mint magic token for ${r.email}: ${err instanceof Error ? err.message : err}`
+      );
+    }
+  }
+
+  const next = encodeURIComponent("/dashboard/results");
   const results = await Promise.allSettled(
-    recipients.map((r) => sendQuizResultsEmail(r.email, quiz.number, leaderboard))
+    recipients.map((r) => {
+      const token = tokenByEmail.get(r.email);
+      const signInUrl = token
+        ? `${baseUrl}/auth/verify?token=${encodeURIComponent(token)}&next=${next}`
+        : undefined;
+      return sendQuizResultsEmail(r.email, quiz.number, leaderboard, { signInUrl });
+    })
   );
 
   let emailsSent = 0;
