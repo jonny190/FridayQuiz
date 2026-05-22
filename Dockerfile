@@ -51,5 +51,9 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Apply schema to the database, then start Next.js
-CMD ["sh", "-c", "npx prisma db push --skip-generate && pnpm start"]
+# Apply schema to the database, then start Next.js.
+# --accept-data-loss lets destructive schema changes (column drops,
+# enum value removals) apply automatically. This is fine while the
+# app is pre-production; when there's real data, switch to
+# `prisma migrate deploy` with versioned migrations instead.
+CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && pnpm start"]
