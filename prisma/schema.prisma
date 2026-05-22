@@ -96,7 +96,6 @@ model QuizAnswer {
   teamId        String
   answer        String
   points        Float?
-  submittedBy   String
   submittedAt   DateTime @default(now())
   isDraft       Boolean  @default(false)
 
@@ -119,7 +118,7 @@ model Suggestion {
   upvotes         Int      @default(0)
   createdAt       DateTime @default(now())
 
-  @@unique([quizId, questionId, suggestedAnswer])
+  @@unique([quizId, questionId, teamId, suggestedAnswer])
 }
 
 model QuizResult {
@@ -139,7 +138,6 @@ model QuizResult {
 
 enum Role {
   QUIZMASTER
-  TEAM_CONTACT
   MEMBER
 }
 

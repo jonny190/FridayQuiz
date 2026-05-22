@@ -1,30 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseQuizDocx } from "@/lib/quizParser";
+import { requireQuizmaster, requireUser } from "@/lib/sessionGuards";
 
 // GET - List all quizzes
 export async function GET() {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const guard = await requireUser();
+  if (!guard.ok) return guard.response;
 
+  try {
     const quizzes = await prisma.quiz.findMany({
-      orderBy: {
-        number: "desc",
-      },
+      orderBy: { number: "desc" },
       include: {
-        _count: {
-          select: {
-            questions: true,
-          },
-        },
+        _count: { select: { questions: true } },
       },
     });
-
     return NextResponse.json(quizzes);
   } catch (error) {
     console.error("Error fetching quizzes:", error);
@@ -37,30 +27,28 @@ export async function GET() {
 
 // POST - Create a new quiz (with optional DOCX upload)
 export async function POST(request: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const guard = await requireQuizmaster();
+  if (!guard.ok) return guard.response;
 
+  try {
     const formData = await request.formData();
-    const quizNumber = formData.get("quizNumber") as string;
+    const quizNumberRaw = formData.get("quizNumber");
     const quizTitle = (formData.get("quizTitle") as string) || null;
     const file = formData.get("file") as File | null;
     const manualQuestions = formData.get("manualQuestions") as string | null;
 
-    if (!quizNumber) {
+    const quizNumber =
+      typeof quizNumberRaw === "string" ? parseInt(quizNumberRaw, 10) : NaN;
+    if (!Number.isFinite(quizNumber)) {
       return NextResponse.json(
         { error: "Quiz number is required" },
         { status: 400 }
       );
     }
 
-    // Check if quiz number already exists
     const existingQuiz = await prisma.quiz.findUnique({
-      where: { number: parseInt(quizNumber, 10) },
+      where: { number: quizNumber },
     });
-
     if (existingQuiz) {
       return NextResponse.json(
         { error: "Quiz number already exists" },
@@ -68,17 +56,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create the quiz with uploadedBy
     const quiz = await prisma.quiz.create({
       data: {
-        number: parseInt(quizNumber, 10),
+        number: quizNumber,
         title: quizTitle,
         status: "DRAFT",
-        uploadedBy: (session.user as any).id,
+        uploadedBy: guard.user.id,
       },
     });
 
-    // Process DOCX file if provided
     if (file) {
       const buffer = Buffer.from(await file.arrayBuffer());
       const parsed = await parseQuizDocx(buffer);
@@ -87,7 +73,6 @@ export async function POST(request: NextRequest) {
         await prisma.question.createMany({
           data: parsed.questions.map((q, index) => ({
             quizId: quiz.id,
-            number: q.number,
             order: index + 1,
             type: "TEXT",
             text: q.question,
@@ -98,7 +83,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Process manual questions if provided
     if (manualQuestions) {
       const questions = JSON.parse(manualQuestions) as string[];
       await prisma.question.createMany({
@@ -106,7 +90,6 @@ export async function POST(request: NextRequest) {
           .filter((q) => q.trim())
           .map((q, index) => ({
             quizId: quiz.id,
-            number: index + 1,
             order: index + 1,
             type: "TEXT",
             text: q.trim(),

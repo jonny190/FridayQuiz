@@ -1,29 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requireQuizmaster, requireUser } from "@/lib/sessionGuards";
 
 // GET - List all teams
 export async function GET() {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const guard = await requireUser();
+  if (!guard.ok) return guard.response;
 
+  try {
     const teams = await prisma.team.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
       include: {
-        _count: {
-          select: {
-            members: true,
-          },
-        },
+        _count: { select: { members: true } },
       },
     });
-
     return NextResponse.json(teams);
   } catch (error) {
     console.error("Error fetching teams:", error);
@@ -36,14 +26,14 @@ export async function GET() {
 
 // POST - Create a new team
 export async function POST(request: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const guard = await requireQuizmaster();
+  if (!guard.ok) return guard.response;
 
+  try {
     const body = await request.json();
-    const { name, contactEmail, members } = body;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const contactEmail =
+      typeof body?.contactEmail === "string" ? body.contactEmail.trim() : "";
 
     if (!name || !contactEmail) {
       return NextResponse.json(
@@ -52,11 +42,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if team name already exists
     const existingTeam = await prisma.team.findFirst({
       where: { name: { mode: "insensitive", equals: name } },
     });
-
     if (existingTeam) {
       return NextResponse.json(
         { error: "Team name already exists" },
@@ -64,12 +52,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create the team
     const team = await prisma.team.create({
-      data: {
-        name,
-        contactEmail,
-      },
+      data: { name, contactEmail },
+      include: { _count: { select: { members: true } } },
     });
 
     return NextResponse.json(team);
