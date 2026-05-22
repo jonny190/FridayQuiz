@@ -12,6 +12,7 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         const magicToken = credentials?.magicToken;
         if (typeof magicToken !== "string" || magicToken.length === 0) {
+          console.warn("[auth] authorize called without magicToken");
           return null;
         }
 
@@ -23,6 +24,21 @@ export const authOptions: NextAuthOptions = {
         });
 
         if (!user) {
+          // Tell the operator whether the token is unknown vs expired
+          // vs already consumed (no row matched on magicToken either way).
+          const stale = await prisma.user.findFirst({
+            where: { magicToken },
+            select: { id: true, magicTokenExpiry: true },
+          });
+          if (stale) {
+            console.warn(
+              `[auth] token expired for user=${stale.id} expiry=${stale.magicTokenExpiry?.toISOString()}`
+            );
+          } else {
+            console.warn(
+              `[auth] no matching token (already consumed or never existed): ${magicToken.slice(0, 6)}…`
+            );
+          }
           return null;
         }
 
@@ -34,8 +50,13 @@ export const authOptions: NextAuthOptions = {
         });
 
         if (consumed.count === 0) {
+          console.warn(
+            `[auth] token consumption race for user=${user.id} — already used`
+          );
           return null;
         }
+
+        console.log(`[auth] sign-in via magic token for user=${user.id}`);
 
         const quizmasterEmail = process.env.QUIZMASTER_EMAIL?.toLowerCase();
         if (
