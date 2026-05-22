@@ -1,10 +1,3 @@
-[phases.build]
-dependsOn = install
-cmd = "npx prisma generate && npx prisma db push && pnpm build"
-
-[phases.install]
-cmd = "corepack enable && pnpm install --frozen-lockfile"
-
 [start]
 cmd = "pnpm start"
 
