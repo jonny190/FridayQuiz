@@ -1,8 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireQuizmaster } from "@/lib/sessionGuards";
+import { requireQuizmaster, requireUser } from "@/lib/sessionGuards";
+import { parseMemberEmails } from "@/lib/teamMembers";
 
 type Params = { params: Promise<{ id: string }> };
+
+const memberSelect = {
+  id: true,
+  invitedAt: true,
+  user: { select: { id: true, email: true, firstName: true, lastName: true } },
+} as const;
+
+export async function GET(_req: NextRequest, { params }: Params) {
+  const guard = await requireUser();
+  if (!guard.ok) return guard.response;
+
+  const { id } = await params;
+  const team = await prisma.team.findUnique({
+    where: { id },
+    include: {
+      members: {
+        orderBy: { invitedAt: "asc" },
+        select: memberSelect,
+      },
+      _count: { select: { members: true } },
+    },
+  });
+  if (!team) {
+    return NextResponse.json({ error: "Team not found" }, { status: 404 });
+  }
+  return NextResponse.json(team);
+}
 
 export async function PUT(request: NextRequest, { params }: Params) {
   const guard = await requireQuizmaster();
@@ -51,10 +79,28 @@ export async function PUT(request: NextRequest, { params }: Params) {
       data.isActive = body.isActive;
     }
 
-    const updated = await prisma.team.update({
+    await prisma.team.update({ where: { id }, data });
+
+    const newMemberEmails = parseMemberEmails(body?.addMembers);
+    for (const email of newMemberEmails) {
+      const user = await prisma.user.upsert({
+        where: { email },
+        update: {},
+        create: { email, role: "MEMBER" },
+      });
+      await prisma.teamMember.upsert({
+        where: { userId_teamId: { userId: user.id, teamId: id } },
+        update: {},
+        create: { userId: user.id, teamId: id },
+      });
+    }
+
+    const updated = await prisma.team.findUnique({
       where: { id },
-      data,
-      include: { _count: { select: { members: true } } },
+      include: {
+        members: { orderBy: { invitedAt: "asc" }, select: memberSelect },
+        _count: { select: { members: true } },
+      },
     });
     return NextResponse.json(updated);
   } catch (error) {

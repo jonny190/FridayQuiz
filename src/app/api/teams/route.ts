@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireQuizmaster, requireUser } from "@/lib/sessionGuards";
+import { parseMemberEmails } from "@/lib/teamMembers";
 
 // GET - List all teams
 export async function GET() {
@@ -22,28 +23,6 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
-
-function parseMemberEmails(input: unknown): string[] {
-  let lines: string[];
-  if (Array.isArray(input)) {
-    lines = input.filter((v): v is string => typeof v === "string");
-  } else if (typeof input === "string") {
-    lines = input.split(/[\n,]/);
-  } else {
-    return [];
-  }
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of lines) {
-    const email = raw.trim().toLowerCase();
-    if (!email) continue;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
-    if (seen.has(email)) continue;
-    seen.add(email);
-    out.push(email);
-  }
-  return out;
 }
 
 // POST - Create a new team
@@ -79,20 +58,17 @@ export async function POST(request: NextRequest) {
       data: { name, contactEmail },
     });
 
-    if (memberEmails.length > 0) {
-      // Upsert users and create TeamMember rows.
-      for (const email of memberEmails) {
-        const user = await prisma.user.upsert({
-          where: { email },
-          update: {},
-          create: { email, role: "MEMBER" },
-        });
-        await prisma.teamMember.upsert({
-          where: { userId_teamId: { userId: user.id, teamId: team.id } },
-          update: {},
-          create: { userId: user.id, teamId: team.id },
-        });
-      }
+    for (const email of memberEmails) {
+      const user = await prisma.user.upsert({
+        where: { email },
+        update: {},
+        create: { email, role: "MEMBER" },
+      });
+      await prisma.teamMember.upsert({
+        where: { userId_teamId: { userId: user.id, teamId: team.id } },
+        update: {},
+        create: { userId: user.id, teamId: team.id },
+      });
     }
 
     const result = await prisma.team.findUnique({

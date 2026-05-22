@@ -32,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Users, Plus, Mail, Edit, Trash2 } from "lucide-react";
+import { Users, Plus, Mail, Pencil, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 type TeamFromApi = {
@@ -43,18 +43,31 @@ type TeamFromApi = {
   _count: { members: number };
 };
 
+type Member = {
+  id: string;
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  };
+};
+
+type TeamDetail = TeamFromApi & { members: Member[] };
+
 export default function TeamsPage() {
   const [teams, setTeams] = useState<TeamFromApi[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<TeamFromApi | null>(null);
+  const [editing, setEditing] = useState<TeamDetail | null>(null);
   const [pendingDelete, setPendingDelete] = useState<TeamFromApi | null>(null);
   const [saving, setSaving] = useState(false);
+  const [memberSaving, setMemberSaving] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     contactEmail: "",
-    members: "",
+    addMembers: "",
   });
 
   async function load() {
@@ -76,19 +89,55 @@ export default function TeamsPage() {
   }, []);
 
   const openNewTeamDialog = () => {
-    setEditingTeam(null);
-    setFormData({ name: "", contactEmail: "", members: "" });
+    setEditing(null);
+    setFormData({ name: "", contactEmail: "", addMembers: "" });
     setIsDialogOpen(true);
   };
 
-  const openEditTeamDialog = (team: TeamFromApi) => {
-    setEditingTeam(team);
+  const openEditTeamDialog = async (team: TeamFromApi) => {
     setFormData({
       name: team.name,
       contactEmail: team.contactEmail,
-      members: "",
+      addMembers: "",
     });
     setIsDialogOpen(true);
+    try {
+      const res = await fetch(`/api/teams/${team.id}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load team details");
+      const data = (await res.json()) as TeamDetail;
+      setEditing(data);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to load team details");
+    }
+  };
+
+  const refreshEditing = async (teamId: string) => {
+    const res = await fetch(`/api/teams/${teamId}`, { cache: "no-store" });
+    if (res.ok) {
+      const data = (await res.json()) as TeamDetail;
+      setEditing(data);
+    }
+  };
+
+  const handleRemoveMember = async (member: Member) => {
+    if (!editing) return;
+    setMemberSaving(member.id);
+    try {
+      const res = await fetch(`/api/teams/${editing.id}/members/${member.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Failed to remove member");
+        return;
+      }
+      toast.success(`Removed ${member.user.email}`);
+      await refreshEditing(editing.id);
+      await load();
+    } finally {
+      setMemberSaving(null);
+    }
   };
 
   const handleSaveTeam = async () => {
@@ -101,11 +150,15 @@ export default function TeamsPage() {
 
     setSaving(true);
     try {
-      if (editingTeam) {
-        const res = await fetch(`/api/teams/${editingTeam.id}`, {
+      if (editing) {
+        const res = await fetch(`/api/teams/${editing.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, contactEmail }),
+          body: JSON.stringify({
+            name,
+            contactEmail,
+            addMembers: formData.addMembers,
+          }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -120,7 +173,7 @@ export default function TeamsPage() {
           body: JSON.stringify({
             name,
             contactEmail,
-            members: formData.members,
+            members: formData.addMembers,
           }),
         });
         if (!res.ok) {
@@ -131,6 +184,7 @@ export default function TeamsPage() {
         toast.success("Team created");
       }
       setIsDialogOpen(false);
+      setEditing(null);
       await load();
     } catch (err) {
       console.error(err);
@@ -221,7 +275,15 @@ export default function TeamsPage() {
               <TableBody>
                 {teams.map((team) => (
                   <TableRow key={team.id}>
-                    <TableCell className="font-medium">{team.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <button
+                        type="button"
+                        className="text-left hover:underline"
+                        onClick={() => openEditTeamDialog(team)}
+                      >
+                        {team.name}
+                      </button>
+                    </TableCell>
                     <TableCell>
                       <span className="flex items-center gap-1">
                         <Mail className="h-3 w-3" />
@@ -237,18 +299,22 @@ export default function TeamsPage() {
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
+                          className="gap-1"
                           onClick={() => openEditTeamDialog(team)}
                         >
-                          <Edit className="h-4 w-4" />
+                          <Pencil className="h-4 w-4" />
+                          Edit
                         </Button>
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
+                          className="gap-1"
                           onClick={() => setPendingDelete(team)}
                         >
                           <Trash2 className="h-4 w-4" />
+                          Delete
                         </Button>
                       </div>
                     </TableCell>
@@ -260,13 +326,19 @@ export default function TeamsPage() {
         </Card>
       )}
 
-      <Sheet open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <SheetContent>
+      <Sheet
+        open={isDialogOpen}
+        onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) setEditing(null);
+        }}
+      >
+        <SheetContent className="overflow-y-auto">
           <SheetHeader className="text-left">
-            <SheetTitle>{editingTeam ? "Edit Team" : "New Team"}</SheetTitle>
+            <SheetTitle>{editing ? "Edit Team" : "New Team"}</SheetTitle>
             <SheetDescription>
-              {editingTeam
-                ? "Update the team details below."
+              {editing
+                ? "Update the team details and members below."
                 : "Add a new team to participate in Friday Quiz."}
             </SheetDescription>
           </SheetHeader>
@@ -294,26 +366,67 @@ export default function TeamsPage() {
                 }
               />
             </div>
-            {!editingTeam && (
+
+            {editing && (
               <div className="grid gap-2">
-                <Label htmlFor="members">
-                  Add Members (email addresses, one per line)
-                </Label>
-                <textarea
-                  id="members"
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  placeholder="member1@email.com&#10;member2@email.com"
-                  value={formData.members}
-                  onChange={(e) =>
-                    setFormData({ ...formData, members: e.target.value })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  We&apos;ll create user records for these emails so they can
-                  sign in with a magic link.
-                </p>
+                <Label>Current members</Label>
+                {editing.members.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No members yet. Add some below.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {editing.members.map((m) => {
+                      const fullName = [m.user.firstName, m.user.lastName]
+                        .filter(Boolean)
+                        .join(" ");
+                      return (
+                        <div
+                          key={m.id}
+                          className="flex items-center justify-between rounded border px-3 py-2 text-sm"
+                        >
+                          <div>
+                            <div>{m.user.email}</div>
+                            {fullName && (
+                              <div className="text-xs text-muted-foreground">
+                                {fullName}
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveMember(m)}
+                            disabled={memberSaving === m.id}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
+
+            <div className="grid gap-2">
+              <Label htmlFor="addMembers">
+                {editing ? "Add members" : "Initial members"} (emails, one per line)
+              </Label>
+              <textarea
+                id="addMembers"
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                placeholder="member1@email.com&#10;member2@email.com"
+                value={formData.addMembers}
+                onChange={(e) =>
+                  setFormData({ ...formData, addMembers: e.target.value })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                We&apos;ll create user records for these emails so they can
+                sign in with a magic link.
+              </p>
+            </div>
           </div>
           <SheetFooter className="mt-4">
             <Button
@@ -324,9 +437,7 @@ export default function TeamsPage() {
               Cancel
             </Button>
             <Button onClick={handleSaveTeam} disabled={saving}>
-              {saving
-                ? "Saving…"
-                : `${editingTeam ? "Update" : "Create"} Team`}
+              {saving ? "Saving…" : `${editing ? "Update" : "Create"} Team`}
             </Button>
           </SheetFooter>
         </SheetContent>
