@@ -81,6 +81,21 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
     await prisma.team.update({ where: { id }, data });
 
+    // Keep the (possibly new) contact email synced as an OWNER member.
+    const effectiveContact = (data.contactEmail ?? team.contactEmail)?.toLowerCase();
+    if (effectiveContact) {
+      const contactUser = await prisma.user.upsert({
+        where: { email: effectiveContact },
+        update: {},
+        create: { email: effectiveContact, role: "MEMBER" },
+      });
+      await prisma.teamMember.upsert({
+        where: { userId_teamId: { userId: contactUser.id, teamId: id } },
+        update: { role: "OWNER" },
+        create: { userId: contactUser.id, teamId: id, role: "OWNER" },
+      });
+    }
+
     const newMemberEmails = parseMemberEmails(body?.addMembers);
     for (const email of newMemberEmails) {
       const user = await prisma.user.upsert({

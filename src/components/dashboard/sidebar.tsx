@@ -19,6 +19,7 @@ import {
   Settings,
   LogOut,
   Trophy,
+  PlayCircle,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { useSession } from "next-auth/react";
@@ -28,6 +29,11 @@ const menuItems = [
     title: "Dashboard",
     url: "/dashboard",
     icon: LayoutDashboard,
+  },
+  {
+    title: "Play",
+    url: "/dashboard/play",
+    icon: PlayCircle,
   },
   {
     title: "Quizzes",

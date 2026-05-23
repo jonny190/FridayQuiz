@@ -58,7 +58,21 @@ export async function POST(request: NextRequest) {
       data: { name, contactEmail },
     });
 
+    // The contact is the team leader — upsert them as a user and
+    // make sure they're an OWNER TeamMember.
+    const contactUser = await prisma.user.upsert({
+      where: { email: contactEmail.toLowerCase() },
+      update: {},
+      create: { email: contactEmail.toLowerCase(), role: "MEMBER" },
+    });
+    await prisma.teamMember.upsert({
+      where: { userId_teamId: { userId: contactUser.id, teamId: team.id } },
+      update: { role: "OWNER" },
+      create: { userId: contactUser.id, teamId: team.id, role: "OWNER" },
+    });
+
     for (const email of memberEmails) {
+      if (email === contactEmail.toLowerCase()) continue;
       const user = await prisma.user.upsert({
         where: { email },
         update: {},

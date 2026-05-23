@@ -1,24 +1,12 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Check, ChevronLeft, ChevronRight, Save, X } from "lucide-react";
+import { Check, ChevronLeft, X } from "lucide-react";
 import { toast } from "sonner";
 
 type Question = {
@@ -40,7 +28,7 @@ type Answer = {
   points: number | null;
 };
 
-type MarkingData = {
+type Data = {
   quiz: {
     id: string;
     number: number;
@@ -52,53 +40,25 @@ type MarkingData = {
   answers: Answer[];
 };
 
-type DraftEntry = { answer: string; points: string };
-
-export default function MarkingPage({
+export default function SubmissionsReviewPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const router = useRouter();
 
-  const [data, setData] = useState<MarkingData | null>(null);
+  const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [drafts, setDrafts] = useState<
-    Record<string /* questionId */, Record<string /* teamId */, DraftEntry>>
-  >({});
-  const [savingQuestion, setSavingQuestion] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [publishOpen, setPublishOpen] = useState(false);
-  const [includeMembers, setIncludeMembers] = useState(false);
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   async function load() {
     try {
       const res = await fetch(`/api/quizzes/${id}/marking`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`Failed to load (${res.status})`);
-      const json = (await res.json()) as MarkingData;
-      setData(json);
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      setData((await res.json()) as Data);
       setError(null);
-
-      // Build initial drafts from existing QuizAnswer rows.
-      const next: Record<string, Record<string, DraftEntry>> = {};
-      for (const q of json.quiz.questions) {
-        next[q.id] = {};
-        for (const t of json.teams) {
-          next[q.id][t.id] = { answer: "", points: "" };
-        }
-      }
-      for (const a of json.answers) {
-        if (!next[a.questionId]) continue;
-        next[a.questionId][a.teamId] = {
-          answer: a.answer,
-          points: a.points === null ? "" : String(a.points),
-        };
-      }
-      setDrafts(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -111,122 +71,53 @@ export default function MarkingPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const question = data?.quiz.questions[currentIndex] ?? null;
+  const findAnswer = (questionId: string, teamId: string) =>
+    data?.answers.find((a) => a.questionId === questionId && a.teamId === teamId) ??
+    null;
 
-  const updateDraft = (teamId: string, patch: Partial<DraftEntry>) => {
-    if (!question) return;
-    setDrafts((prev) => {
-      const forQ = { ...(prev[question.id] ?? {}) };
-      forQ[teamId] = { ...(forQ[teamId] ?? { answer: "", points: "" }), ...patch };
-      return { ...prev, [question.id]: forQ };
-    });
-  };
+  const overrideKey = (questionId: string, teamId: string) =>
+    `${questionId}::${teamId}`;
 
-  const markFull = (teamId: string) => {
-    if (!question) return;
-    updateDraft(teamId, { points: String(question.points) });
-  };
-  const markZero = (teamId: string) => {
-    updateDraft(teamId, { points: "0" });
-  };
-
-  const saveCurrent = async () => {
-    if (!question || !data) return;
-    const entries: { teamId: string; answer: string; points: number | null }[] = [];
-    for (const team of data.teams) {
-      const d = drafts[question.id]?.[team.id];
-      if (!d) continue;
-      const trimmed = d.answer.trim();
-      const points = d.points === "" ? null : Number(d.points);
-      if (points !== null && (!Number.isFinite(points) || points < 0)) {
-        toast.error(`${team.name}: points must be a non-negative number`);
-        return;
-      }
-      entries.push({ teamId: team.id, answer: trimmed, points });
-    }
-
-    setSavingQuestion(true);
+  const saveOverride = async (
+    question: Question,
+    team: Team,
+    newPoints: number
+  ) => {
+    if (!data) return;
+    const existing = findAnswer(question.id, team.id);
+    setSavingId(overrideKey(question.id, team.id));
     try {
       const res = await fetch(`/api/quizzes/${id}/marking`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questionId: question.id, entries }),
+        body: JSON.stringify({
+          questionId: question.id,
+          entries: [
+            {
+              teamId: team.id,
+              answer: existing?.answer ?? "",
+              points: newPoints,
+            },
+          ],
+        }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         toast.error(j.error || "Failed to save");
         return;
       }
-      toast.success(`Saved Q${question.order}`);
-    } finally {
-      setSavingQuestion(false);
-    }
-  };
-
-  const goNext = async () => {
-    if (!data) return;
-    await saveCurrent();
-    if (currentIndex < data.quiz.questions.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    }
-  };
-  const goPrev = async () => {
-    if (currentIndex <= 0) return;
-    await saveCurrent();
-    setCurrentIndex(currentIndex - 1);
-  };
-
-  const totals = useMemo(() => {
-    if (!data) return new Map<string, number>();
-    const m = new Map<string, number>();
-    for (const t of data.teams) m.set(t.id, 0);
-    for (const qid of Object.keys(drafts)) {
-      for (const tid of Object.keys(drafts[qid])) {
-        const v = Number(drafts[qid][tid].points);
-        if (Number.isFinite(v)) {
-          m.set(tid, (m.get(tid) ?? 0) + v);
-        }
-      }
-    }
-    return m;
-  }, [data, drafts]);
-
-  const handlePublish = async () => {
-    setPublishOpen(false);
-    setPublishing(true);
-    try {
-      await saveCurrent();
-      const res = await fetch(`/api/quizzes/${id}/publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ includeMembers }),
+      await load();
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next[overrideKey(question.id, team.id)];
+        return next;
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        toast.error(j.error || "Failed to publish");
-        return;
-      }
-      const result = await res.json();
-      const emailSummary =
-        result.emailsSent > 0
-          ? ` · ${result.emailsSent} email${result.emailsSent === 1 ? "" : "s"} sent`
-          : "";
-      const failSummary =
-        result.emailsFailed > 0
-          ? ` (${result.emailsFailed} failed)`
-          : "";
-      toast.success(
-        `Published — ${result.published} team result(s)${emailSummary}${failSummary}`
-      );
-      router.push(`/dashboard/quizzes/${id}`);
     } finally {
-      setPublishing(false);
+      setSavingId(null);
     }
   };
 
-  if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
-  }
+  if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
   if (error || !data) {
     return (
@@ -238,52 +129,8 @@ export default function MarkingPage({
         </Link>
         <Card>
           <CardHeader>
-            <CardTitle>Couldn&apos;t load marking</CardTitle>
+            <CardTitle>Couldn&apos;t load submissions</CardTitle>
             <CardDescription>{error ?? "Not found"}</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    );
-  }
-
-  if (data.teams.length === 0) {
-    return (
-      <div className="space-y-4">
-        <Link href={`/dashboard/quizzes/${id}`}>
-          <Button variant="ghost" size="sm">
-            <ChevronLeft className="h-4 w-4" /> Back
-          </Button>
-        </Link>
-        <Card>
-          <CardHeader>
-            <CardTitle>No active teams</CardTitle>
-            <CardDescription>
-              Add at least one active team in{" "}
-              <Link href="/dashboard/teams" className="underline">
-                Teams
-              </Link>{" "}
-              before you can mark a quiz.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    );
-  }
-
-  if (data.quiz.questions.length === 0) {
-    return (
-      <div className="space-y-4">
-        <Link href={`/dashboard/quizzes/${id}`}>
-          <Button variant="ghost" size="sm">
-            <ChevronLeft className="h-4 w-4" /> Back
-          </Button>
-        </Link>
-        <Card>
-          <CardHeader>
-            <CardTitle>No questions to mark</CardTitle>
-            <CardDescription>
-              This quiz has no questions yet.
-            </CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -301,7 +148,7 @@ export default function MarkingPage({
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-foreground">
-              Marking — Quiz {data.quiz.number}
+              Submissions — Quiz {data.quiz.number}
               {data.quiz.title && (
                 <span className="ml-2 font-normal text-muted-foreground">
                   — {data.quiz.title}
@@ -309,190 +156,139 @@ export default function MarkingPage({
               )}
             </h1>
             <p className="text-muted-foreground">
-              Question {currentIndex + 1} of {data.quiz.questions.length} ·{" "}
-              {data.teams.length} team{data.teams.length === 1 ? "" : "s"}
+              Auto-scored when each team locks in. Use the override buttons
+              to mark a wrong-but-acceptable answer as correct (or vice
+              versa) before publishing.
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setPublishOpen(true)}
-            disabled={publishing}
-          >
-            Publish results
-          </Button>
-        </div>
       </div>
 
-      {question && (
+      {data.teams.length === 0 ? (
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-4">
-              <div>
+            <CardTitle>No active teams</CardTitle>
+            <CardDescription>
+              Add at least one active team in{" "}
+              <Link href="/dashboard/teams" className="underline">
+                Teams
+              </Link>{" "}
+              before submissions can come in.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {data.quiz.questions.map((q) => (
+            <Card key={q.id}>
+              <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  Q{question.order}. {question.text}
+                  Q{q.order}. {q.text}
                 </CardTitle>
                 <CardDescription>
-                  Worth {question.points} pt{question.points === 1 ? "" : "s"}
+                  Correct: <strong>{q.answer || "(not set)"}</strong> · worth{" "}
+                  {q.points} pt{q.points === 1 ? "" : "s"}
                 </CardDescription>
-              </div>
-              <Badge variant="outline">
-                Correct: {question.answer || "(not set)"}
-              </Badge>
-            </div>
-          </CardHeader>
-          {question.imageUrls.length > 0 && (
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {question.imageUrls.map((src, i) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={i}
-                    src={src}
-                    alt={`Q${question.order} image ${i + 1}`}
-                    className="h-32 rounded border object-contain"
-                  />
-                ))}
-              </div>
-            </CardContent>
-          )}
-        </Card>
-      )}
-
-      <div className="space-y-3">
-        {data.teams.map((team) => {
-          const d = drafts[question!.id]?.[team.id] ?? {
-            answer: "",
-            points: "",
-          };
-          const ptsVal = Number(d.points);
-          const isFull =
-            d.points !== "" &&
-            Number.isFinite(ptsVal) &&
-            ptsVal === question!.points;
-          const isZero =
-            d.points !== "" && Number.isFinite(ptsVal) && ptsVal === 0;
-          return (
-            <Card key={team.id}>
-              <CardContent className="pt-6 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">{team.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Total so far: {totals.get(team.id) ?? 0}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant={isZero ? "default" : "outline"}
-                      onClick={() => markZero(team.id)}
-                      className="gap-1"
-                    >
-                      <X className="h-4 w-4" />
-                      Wrong
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={isFull ? "default" : "outline"}
-                      onClick={() => markFull(team.id)}
-                      className="gap-1"
-                    >
-                      <Check className="h-4 w-4" />
-                      Correct
-                    </Button>
-                  </div>
-                </div>
-                <div className="grid gap-3 md:grid-cols-[1fr_120px]">
-                  <div className="grid gap-1.5">
-                    <Label
-                      htmlFor={`ans-${team.id}`}
-                      className="text-xs text-muted-foreground"
-                    >
-                      Team&apos;s answer
-                    </Label>
-                    <Input
-                      id={`ans-${team.id}`}
-                      value={d.answer}
-                      placeholder="(no answer)"
-                      onChange={(e) =>
-                        updateDraft(team.id, { answer: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label
-                      htmlFor={`pts-${team.id}`}
-                      className="text-xs text-muted-foreground"
-                    >
-                      Points
-                    </Label>
-                    <Input
-                      id={`pts-${team.id}`}
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={d.points}
-                      onChange={(e) =>
-                        updateDraft(team.id, { points: e.target.value })
-                      }
-                    />
-                  </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {data.teams.map((t) => {
+                    const ans = findAnswer(q.id, t.id);
+                    const submitted = ans ? !!ans.answer : false;
+                    const ptsRaw =
+                      overrides[overrideKey(q.id, t.id)] ??
+                      (ans?.points === null || ans?.points === undefined
+                        ? ""
+                        : String(ans.points));
+                    const ptsVal = Number(ptsRaw);
+                    const isFull =
+                      ptsRaw !== "" &&
+                      Number.isFinite(ptsVal) &&
+                      ptsVal === q.points;
+                    const isZero =
+                      ptsRaw !== "" && Number.isFinite(ptsVal) && ptsVal === 0;
+                    const saving =
+                      savingId === overrideKey(q.id, t.id);
+                    return (
+                      <div
+                        key={t.id}
+                        className="grid gap-2 rounded border p-3 md:grid-cols-[160px_1fr_140px_160px] md:items-center"
+                      >
+                        <div className="font-medium">{t.name}</div>
+                        <div className="text-sm">
+                          {submitted ? (
+                            <span>{ans!.answer}</span>
+                          ) : (
+                            <span className="italic text-muted-foreground">
+                              No submission
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          {submitted ? (
+                            <Badge
+                              variant={isFull ? "default" : isZero ? "secondary" : "outline"}
+                            >
+                              {ptsRaw === "" ? "Unscored" : `${ptsVal} pt${ptsVal === 1 ? "" : "s"}`}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            size="sm"
+                            variant={isZero ? "default" : "outline"}
+                            disabled={!submitted || saving}
+                            onClick={() => saveOverride(q, t, 0)}
+                            className="gap-1"
+                            title="Mark as wrong"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={isFull ? "default" : "outline"}
+                            disabled={!submitted || saving}
+                            onClick={() => saveOverride(q, t, q.points)}
+                            className="gap-1"
+                            title="Mark as correct"
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            disabled={!submitted || saving}
+                            value={ptsRaw}
+                            onChange={(e) =>
+                              setOverrides((prev) => ({
+                                ...prev,
+                                [overrideKey(q.id, t.id)]: e.target.value,
+                              }))
+                            }
+                            onBlur={() => {
+                              const raw = overrides[overrideKey(q.id, t.id)];
+                              if (raw === undefined) return;
+                              const v = Number(raw);
+                              if (!Number.isFinite(v) || v < 0) return;
+                              if (ans?.points !== v) {
+                                saveOverride(q, t, v);
+                              }
+                            }}
+                            className="w-20"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
-          );
-        })}
-      </div>
-
-      <div className="flex items-center justify-between">
-        <Button variant="outline" onClick={goPrev} disabled={currentIndex === 0 || savingQuestion}>
-          <ChevronLeft className="h-4 w-4" /> Previous
-        </Button>
-        <Button variant="outline" onClick={saveCurrent} disabled={savingQuestion} className="gap-1">
-          <Save className="h-4 w-4" />
-          {savingQuestion ? "Saving…" : "Save question"}
-        </Button>
-        <Button
-          onClick={goNext}
-          disabled={
-            currentIndex >= data.quiz.questions.length - 1 || savingQuestion
-          }
-          className="gap-1"
-        >
-          Save &amp; next <ChevronRight className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Publish results?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will rank teams by the points entered on this quiz, mark
-              the quiz as Published, and email the leaderboard to each
-              team&apos;s contact email. Re-publishing later overwrites the
-              previous results.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <label className="flex items-center gap-2 py-2 text-sm">
-            <input
-              type="checkbox"
-              checked={includeMembers}
-              onChange={(e) => setIncludeMembers(e.target.checked)}
-              className="h-4 w-4 rounded border-input"
-            />
-            <span>Also email every team member, not just the contact</span>
-          </label>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handlePublish}>
-              Publish &amp; send emails
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

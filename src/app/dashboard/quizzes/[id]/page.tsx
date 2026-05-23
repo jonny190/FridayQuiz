@@ -340,7 +340,7 @@ export default function QuizDetailPage({
           <Link href={`/dashboard/quizzes/${id}/marking`}>
             <Button variant="outline" size="sm" className="gap-1">
               <ClipboardCheck className="h-4 w-4" />
-              Mark & publish
+              Review submissions
             </Button>
           </Link>
           <Button onClick={openAdd} size="sm" className="gap-1">
