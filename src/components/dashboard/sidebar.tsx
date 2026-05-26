@@ -24,54 +24,44 @@ import {
 import { signOut } from "next-auth/react";
 import { useSession } from "next-auth/react";
 
-const menuItems = [
-  {
-    title: "Dashboard",
-    url: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Play",
-    url: "/dashboard/play",
-    icon: PlayCircle,
-  },
-  {
-    title: "Quizzes",
-    url: "/dashboard/quizzes",
-    icon: FileText,
-  },
-  {
-    title: "Teams",
-    url: "/dashboard/teams",
-    icon: Users,
-  },
-  {
-    title: "Results",
-    url: "/dashboard/results",
-    icon: Trophy,
-  },
-  {
-    title: "Settings",
-    url: "/dashboard/settings",
-    icon: Settings,
-  },
+type MenuItem = {
+  title: string;
+  url: string;
+  icon: typeof LayoutDashboard;
+  quizmasterOnly?: boolean;
+};
+
+const menuItems: MenuItem[] = [
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "Play", url: "/dashboard/play", icon: PlayCircle },
+  { title: "Quizzes", url: "/dashboard/quizzes", icon: FileText, quizmasterOnly: true },
+  { title: "Teams", url: "/dashboard/teams", icon: Users, quizmasterOnly: true },
+  { title: "Results", url: "/dashboard/results", icon: Trophy },
+  { title: "Settings", url: "/dashboard/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const isQuizmaster =
+    (session?.user as { role?: string } | undefined)?.role === "QUIZMASTER";
+  const visibleItems = menuItems.filter(
+    (item) => !item.quizmasterOnly || isQuizmaster
+  );
 
   return (
     <Sidebar>
       <SidebarHeader>
         <div className="px-4 py-6">
           <h2 className="text-lg font-bold text-foreground">Friday Quiz</h2>
-          <p className="text-sm text-muted-foreground">Management Panel</p>
+          <p className="text-sm text-muted-foreground">
+            {isQuizmaster ? "Management Panel" : "Friday Quiz"}
+          </p>
         </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu>
-          {menuItems.map((item) => (
+          {visibleItems.map((item) => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
                 isActive={pathname === item.url || pathname?.startsWith(item.url + "/")}

@@ -64,6 +64,10 @@ const STATUS_LABELS: Record<Quiz["status"], string> = {
   ARCHIVED: "Archived",
 };
 
+// Statuses the dropdown actually offers. GRADED and ARCHIVED are
+// vestigial — kept in the enum for compatibility but not in the UI.
+const SELECTABLE_STATUSES: Quiz["status"][] = ["DRAFT", "ACTIVE", "PUBLISHED"];
+
 type FormState = { text: string; answer: string; points: string };
 const EMPTY_FORM: FormState = { text: "", answer: "", points: "1" };
 
@@ -88,6 +92,7 @@ export default function QuizDetailPage({
 
   const [publishOpen, setPublishOpen] = useState(false);
   const [includeMembers, setIncludeMembers] = useState(false);
+  const [publishSendEmails, setPublishSendEmails] = useState(true);
   const [publishing, setPublishing] = useState(false);
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -236,7 +241,10 @@ export default function QuizDetailPage({
       const res = await fetch(`/api/quizzes/${id}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ includeMembers }),
+        body: JSON.stringify({
+          includeMembers,
+          sendEmails: publishSendEmails,
+        }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -341,11 +349,16 @@ export default function QuizDetailPage({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+              {SELECTABLE_STATUSES.map((value) => (
                 <SelectItem key={value} value={value}>
-                  {label}
+                  {STATUS_LABELS[value]}
                 </SelectItem>
               ))}
+              {!SELECTABLE_STATUSES.includes(quiz.status) && (
+                <SelectItem value={quiz.status}>
+                  {STATUS_LABELS[quiz.status]}
+                </SelectItem>
+              )}
             </SelectContent>
           </Select>
           {quiz.status === "ACTIVE" && (
@@ -550,16 +563,29 @@ export default function QuizDetailPage({
           <AlertDialogHeader>
             <AlertDialogTitle>Publish results?</AlertDialogTitle>
             <AlertDialogDescription>
-              This ranks teams by the points entered on this quiz, marks the
-              quiz as Published, and emails the leaderboard to each team&apos;s
-              contact email. Re-publishing later overwrites the previous
-              results and resends the emails.
+              This ranks teams by the points each one has accumulated and
+              marks the quiz as Published. Re-publishing later overwrites
+              the previous results.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <label className="flex items-center gap-2 py-2 text-sm">
             <input
               type="checkbox"
+              checked={publishSendEmails}
+              onChange={(e) => setPublishSendEmails(e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            <span>Email the leaderboard to teams</span>
+          </label>
+          <label
+            className={`flex items-center gap-2 py-2 text-sm ${
+              publishSendEmails ? "" : "opacity-50"
+            }`}
+          >
+            <input
+              type="checkbox"
               checked={includeMembers}
+              disabled={!publishSendEmails}
               onChange={(e) => setIncludeMembers(e.target.checked)}
               className="h-4 w-4 rounded border-input"
             />
@@ -568,7 +594,7 @@ export default function QuizDetailPage({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handlePublish}>
-              Publish &amp; send emails
+              {publishSendEmails ? "Publish & send emails" : "Publish silently"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -62,6 +62,33 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (contact && !seen.has(`${team.id}::${contact}`)) {
       seen.add(`${team.id}::${contact}`);
       jobs.push({ email: contact, teamName: team.name, teamId: team.id });
+
+      // Self-heal: make sure the contact is an OWNER TeamMember of the
+      // team so that they can actually load /api/play/[id]?teamId=…
+      // when they click the magic link. Teams created before the
+      // auto-upsert logic landed don't have this row.
+      try {
+        const contactUser = await prisma.user.upsert({
+          where: { email: contact },
+          update: {},
+          create: { email: contact, role: "MEMBER" },
+        });
+        await prisma.teamMember.upsert({
+          where: {
+            userId_teamId: { userId: contactUser.id, teamId: team.id },
+          },
+          update: { role: "OWNER" },
+          create: {
+            userId: contactUser.id,
+            teamId: team.id,
+            role: "OWNER",
+          },
+        });
+      } catch (err) {
+        console.error(
+          `[invite] could not ensure TeamMember for ${contact} on team ${team.id}: ${err instanceof Error ? err.message : err}`
+        );
+      }
     }
     if (includeMembers && "members" in team) {
       const t = team as typeof team & {

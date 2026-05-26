@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseQuizDocx } from "@/lib/quizParser";
-import { requireQuizmaster, requireUser } from "@/lib/sessionGuards";
+import { requireQuizmaster } from "@/lib/sessionGuards";
 
 // GET - List all quizzes
 export async function GET() {
-  const guard = await requireUser();
+  const guard = await requireQuizmaster();
   if (!guard.ok) return guard.response;
 
   try {

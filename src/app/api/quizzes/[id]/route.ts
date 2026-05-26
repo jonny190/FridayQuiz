@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseQuizDocx } from "@/lib/quizParser";
-import { requireQuizmaster, requireUser } from "@/lib/sessionGuards";
+import { requireQuizmaster } from "@/lib/sessionGuards";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Params) {
-  const guard = await requireUser();
+  const guard = await requireQuizmaster();
   if (!guard.ok) return guard.response;
 
   const { id } = await params;
