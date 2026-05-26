@@ -59,6 +59,60 @@ export async function sendMagicLinkEmail(email: string, token: string) {
   }
 }
 
+export async function sendQuizInvitationEmail(
+  email: string,
+  args: {
+    quizNumber: number;
+    quizTitle: string | null;
+    teamName: string;
+    signInUrl: string;
+  }
+) {
+  const fromAddress = process.env.EMAIL_FROM || "noreply@daveys.xyz";
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"Friday Quiz" <${fromAddress}>`,
+      to: email,
+      subject: `Quiz ${args.quizNumber} — Time to play!`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #333;">Quiz ${args.quizNumber}${args.quizTitle ? ` — ${args.quizTitle}` : ""}</h1>
+          <p>Hello,</p>
+          <p>
+            The Friday Quiz is open for play. You&apos;re the team contact
+            for <strong>${args.teamName}</strong>, so it&apos;s your job to
+            collect your team&apos;s answers and submit them.
+          </p>
+          <p>Click the button below to open the quiz — you&apos;ll be signed in automatically.</p>
+          <p style="margin: 24px 0;">
+            <a href="${args.signInUrl}"
+               style="background-color: #0070f3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">
+              Open quiz &amp; submit answers
+            </a>
+          </p>
+          <p style="color:#888;font-size:12px;">This sign-in link is single-use and expires in 24 hours.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+          <p style="color: #888; font-size: 12px;">Friday Quiz Management Platform</p>
+        </div>
+      `,
+    });
+    console.log(
+      `[email] invitation to=${email} team=${JSON.stringify(args.teamName)} quiz=${args.quizNumber} messageId=${info.messageId} accepted=${(info.accepted ?? []).join(",")} rejected=${(info.rejected ?? []).join(",")}`
+    );
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    const detail =
+      error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : JSON.stringify(error);
+    console.error(
+      `[email] FAILED invitation to=${email} team=${JSON.stringify(args.teamName)} quiz=${args.quizNumber} error=${detail}`
+    );
+    return { success: false, error };
+  }
+}
+
 export async function sendQuizResultsEmail(
   email: string,
   quizNumber: number,

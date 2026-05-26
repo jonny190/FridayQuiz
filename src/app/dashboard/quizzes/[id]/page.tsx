@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { CheckSquare, ChevronLeft, ClipboardCheck, Image as ImageIcon, Pencil, Plus, Trash2 } from "lucide-react";
+import { CheckSquare, ChevronLeft, ClipboardCheck, Image as ImageIcon, Mail, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type Question = {
@@ -89,6 +89,10 @@ export default function QuizDetailPage({
   const [publishOpen, setPublishOpen] = useState(false);
   const [includeMembers, setIncludeMembers] = useState(false);
   const [publishing, setPublishing] = useState(false);
+
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteIncludeMembers, setInviteIncludeMembers] = useState(false);
+  const [inviting, setInviting] = useState(false);
 
   async function load() {
     try {
@@ -197,6 +201,31 @@ export default function QuizDetailPage({
       toast.error("Failed to save");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleInvite = async () => {
+    setInviteOpen(false);
+    setInviting(true);
+    try {
+      const res = await fetch(`/api/quizzes/${id}/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeMembers: inviteIncludeMembers }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error || "Failed to send invitations");
+        return;
+      }
+      const result = await res.json();
+      const fail =
+        result.emailsFailed > 0 ? ` (${result.emailsFailed} failed)` : "";
+      toast.success(
+        `Invitations sent — ${result.emailsSent} email${result.emailsSent === 1 ? "" : "s"}${fail}`
+      );
+    } finally {
+      setInviting(false);
     }
   };
 
@@ -319,6 +348,17 @@ export default function QuizDetailPage({
               ))}
             </SelectContent>
           </Select>
+          {quiz.status === "ACTIVE" && (
+            <Button
+              variant="outline"
+              onClick={() => setInviteOpen(true)}
+              disabled={inviting}
+              className="gap-1"
+            >
+              <Mail className="h-4 w-4" />
+              {inviting ? "Sending…" : "Send invitations"}
+            </Button>
+          )}
           <Button
             onClick={() => setPublishOpen(true)}
             disabled={publishing}
@@ -478,6 +518,32 @@ export default function QuizDetailPage({
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send play invitations?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Every active team&apos;s contact email gets a magic-link to
+              this quiz&apos;s play page. They&apos;ll be signed in
+              automatically when they click the link.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex items-center gap-2 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={inviteIncludeMembers}
+              onChange={(e) => setInviteIncludeMembers(e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            <span>Also email every team member, not just the contact</span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleInvite}>Send</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
         <AlertDialogContent>
